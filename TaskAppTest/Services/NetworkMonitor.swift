@@ -15,7 +15,7 @@ final class NetworkMonitor: ObservableObject {
     private let monitor: NWPathMonitor
     private let queue = DispatchQueue(label: "NetworkMonitor")
     
-    @Published var isConnected = true
+    @Published var isConnected = false
     
     init() {
         self.monitor = NWPathMonitor()
@@ -27,7 +27,7 @@ final class NetworkMonitor: ObservableObject {
         monitor.pathUpdateHandler = { [weak self] path in
             DispatchQueue.main.async {
                 self?.isConnected = path.status == .satisfied
-                print("Сетевое соединение изменилось: \(path.status == .satisfied ? "Доступно" : "Недоступно")")
+                print("🛜 The network connection has changed: \(path.status == .satisfied ? "Available" : "Not available")")
             }
         }
     }
@@ -38,6 +38,6 @@ final class NetworkMonitor: ObservableObject {
     
     deinit {
         monitor.cancel()
-        print("Мониторинг сети прекратился")
+        print("🛜 Network monitoring has stopped")
     }
 }

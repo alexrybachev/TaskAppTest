@@ -6,127 +6,208 @@
 //
 
 import Foundation
+import CoreData
 
 protocol LocalStorageServiceProtocol {
-    func loadInitialData() -> [TaskModel]
+    func getTasksFromCoreData(with status: TaskStatus?) -> [TaskModel]
+    func saveNewTaskToCoreData(_ task: TaskModel, with status: TaskStatus)
+    func updateTaskToCoreData(_ task: TaskModel, with status: TaskStatus)
     
-//    func saveTask(_ task: TaskModel)
-    func saveTasks(_ tasks: [TaskModel])
-    func updateTask(_ task: TaskModel)
-    func loadTasks() -> [TaskModel]
-    
-    func saveDeferredTask(_ task: TaskModel)
-    func saveDeferredTasks(_ tasks: [TaskModel])
-    func updateDeferedTask(_ task: TaskModel)
-    func getDeferredTasks() -> [TaskModel]
-    func clearDeferredTasks()
+    func updateTasksOnCoreData(with status: TaskStatus)
+    func deleteTasksFromCoreData(with status: TaskStatus)
+    func loadTaskFromServerToCoreData(for tasks: [TaskModel])
 }
 
-final class LocalStorageService: LocalStorageServiceProtocol {
+final class LocalStorageService {
     
-    private let syncedTasksKey = "saved_tasks"
-    private let deferredTasksKey = "deferred_tasks"
+    private let containerId = "TaskEntity"
+    private let persintentContainer: NSPersistentContainer
     
-    // MARK: - Saved tasks
-    
-//    func saveTask(_ task: TaskModel) {
-//        var cachedData = loadTasks()
-//        cachedData.append(task)
-//        saveTasks(cachedData)
-//    }
-    
-    func loadInitialData() -> [TaskModel] {
-        let savedTasks = loadTasks()
-        let defferedTasks = getDeferredTasks()
-        return savedTasks + defferedTasks
+    private var context: NSManagedObjectContext {
+        persintentContainer.viewContext
     }
     
-    func saveTasks(_ tasks: [TaskModel]) {
-        if let encoded = try? JSONEncoder().encode(tasks) {
-            UserDefaults.standard.set(encoded, forKey: syncedTasksKey)
+    // MARK: - Initial
+    
+    init() {
+        persintentContainer = NSPersistentContainer(name: containerId)
+        persintentContainer.loadPersistentStores(completionHandler: { (storeDescription, error) in
+            if let error = error as NSError? {
+                fatalError("Loading core data error \(error), \(error.userInfo)")
+            }
+        })
+    }
+}
+
+// MARK: - LocalStorageServiceProtocol
+
+extension LocalStorageService: LocalStorageServiceProtocol {
+    
+    /// Метод для получения задач из CoreData с определенным статусом `TaskStatus`. Если параметр status == nil, то выгрузятся все задачи
+    func getTasksFromCoreData(with status: TaskStatus?) -> [TaskModel] {
+        let fetchRequest: NSFetchRequest<TaskEntity> = TaskEntity.fetchRequest()
+        if let status = status {
+            fetchRequest.predicate = NSPredicate(format: "statusString == %@", status.stringValue)
         }
-    }
-    
-    func updateTask(_ task: TaskModel) {
-        var cachedData = loadTasks()
-        if let updateTaskIndex = cachedData.firstIndex(where: { $0.id == task.id }) {
-            cachedData[updateTaskIndex] = task
-        } else {
-            cachedData.append(task)
-        }
-        saveTasks(cachedData)
-    }
-    
-    func loadTasks() -> [TaskModel] {
-        guard let data = UserDefaults.standard.data(forKey: syncedTasksKey),
-              let tasks = try? JSONDecoder().decode([TaskModel].self, from: data) else {
+        
+        let sortDescriptor = NSSortDescriptor(key: "id", ascending: false)
+        fetchRequest.sortDescriptors = [sortDescriptor]
+        
+        do {
+            let taskEntity = try context.fetch(fetchRequest)
+            return taskEntity.map { TaskModel(
+                id: $0.id ?? "",
+                name: $0.name ?? "",
+                completed: $0.completed,
+                photoBase64: $0.photoBase64,
+                date: $0.date ?? ""
+            )}
+        } catch {
+            print("▶️ Error fetching tasks: \(error)")
             return []
         }
-        return tasks
     }
     
-    // MARK: - Deferred tasks
-    
-    func saveDeferredTask(_ task: TaskModel) {
-        var defferedTasks = getDeferredTasks()
-        defferedTasks.append(task)
-        saveTasks(defferedTasks)
-        print("🧹 Saved one deffered task")
-    }
-    
-    func saveDeferredTasks(_ tasks: [TaskModel]) {
-        if let encoded = try? JSONEncoder().encode(tasks) {
-            UserDefaults.standard.set(encoded, forKey: deferredTasksKey)
-            print("🧹 Saved all deffered tasks")
+    /// Метод для сохранения задачи в CoreData
+    func saveNewTaskToCoreData(_ task: TaskModel, with status: TaskStatus) {
+        guard !taskExists(with: task.id) else {
+            print("▶️ Task with date \(task.id) already exists.")
+            updateTaskToCoreData(task, with: status)
+            return
+        }
+        
+        let taskEntity = TaskEntity(context: context)
+        switch status {
+        case .new:
+            let maxId = maxId() + 1
+            taskEntity.id = String(maxId)
+        default:
+            taskEntity.id = task.id
+        }
+        taskEntity.name = task.name
+        taskEntity.completed = task.completed
+        taskEntity.photoBase64 = task.photoBase64
+        taskEntity.date = task.date
+        taskEntity.statusString = status.stringValue
+
+        do {
+            try context.save()
+            print("▶️ Task with \(taskEntity.id ?? "") saved to CoreData")
+        } catch {
+            print("▶️ Error saving task: \(error)")
+            context.rollback()
         }
     }
     
-    func updateDeferedTask(_ task: TaskModel) {
-        var savedTasks = getDeferredTasks()
-        if let updatedTaskIndex = savedTasks.firstIndex(where: { $0.id == task.id }) {
-            savedTasks[updatedTaskIndex].name = task.name
-            savedTasks[updatedTaskIndex].completed = task.completed
-            if task.photoBase64 != nil {
-                savedTasks[updatedTaskIndex].photoBase64 = task.photoBase64
+    /// Метод для сохранения задачи в CoreData
+    func updateTaskToCoreData(_ task: TaskModel, with status: TaskStatus) {
+        let fetchRequest: NSFetchRequest<TaskEntity> = TaskEntity.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "id == %@", task.id)
+        
+        do {
+            let savedTasks = try context.fetch(fetchRequest)
+            guard let taskEntity = savedTasks.first else {
+                print("▶️ Task with id \(task.id) didn't exist")
+                saveNewTaskToCoreData(task, with: .new)
+                return
+            }
+            taskEntity.name = task.name
+            taskEntity.completed = task.completed
+            taskEntity.photoBase64 = task.photoBase64
+
+            if taskEntity.status != .new {
+                taskEntity.status = status
+            }
+            
+            try context.save()
+            print("▶️ Task with id \(taskEntity.id ?? "") updated to CoreData")
+        } catch {
+            print("▶️ Error updating task: \(error)")
+            context.rollback()
+        }
+    }
+    
+    /// Вспомогательный метод для массового обновления статусов у задач в CoreData
+    func updateTasksOnCoreData(with status: TaskStatus) {
+        let batchUpdate = NSBatchUpdateRequest(entityName: containerId)
+        batchUpdate.predicate = NSPredicate(format: "statusString == %@", status.stringValue)
+        batchUpdate.propertiesToUpdate = ["statusString": "server"]
+        batchUpdate.resultType = .updatedObjectsCountResultType
+        
+        do {
+            if let result = try context.execute(batchUpdate) as? NSBatchUpdateResult {
+                print("▶️ Updated \(result.result ?? 0) tasks with status \(status.stringValue)")
+                context.refreshAllObjects()
+            }
+        } catch {
+            print("▶️ Error batch updating: \(error)")
+            return
+        }
+    }
+    
+    /// Вспомогательный метод на период тестирования - загружает данные из сервера в CoreData
+    func loadTaskFromServerToCoreData(for tasks: [TaskModel]) {
+        let savedTask = getTasksFromCoreData(with: .server)
+        for task in tasks {
+            if !savedTask.contains(where: { $0.id == task.id }) {
+                saveNewTaskToCoreData(task, with: .server)
             }
         }
-        saveDeferredTasks(savedTasks)
-        print("🧹 Updated deffered tasks")
     }
     
-    func getDeferredTasks() -> [TaskModel] {
-        guard let data = UserDefaults.standard.data(forKey: deferredTasksKey),
-              let tasks = try? JSONDecoder().decode([TaskModel].self, from: data) else {
-            return []
+    /// Вспомогательный метод на период тестирования - удаляет данные из CoreData
+    func deleteTasksFromCoreData(with status: TaskStatus) {
+        let fetchRequest: NSFetchRequest<NSFetchRequestResult> = TaskEntity.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "statusString == %@", status.stringValue)
+        
+        let batchDeleteRequest = NSBatchDeleteRequest(fetchRequest: fetchRequest)
+        batchDeleteRequest.resultType = .resultTypeCount
+        
+        do {
+            let result = try context.execute(batchDeleteRequest) as? NSBatchDeleteResult
+            print("▶️ Deleted tasks with status \(status.stringValue): \(result?.result ?? 0)")
+            context.reset()
+        } catch {
+            print("▶️ Error deleting batch tasks: \(error)")
+            context.rollback()
         }
-        print("🧹 Get deffered tasks")
-        return tasks
     }
     
-    func clearDeferredTasks() {
-        UserDefaults.standard.removeObject(forKey: deferredTasksKey)
-        print("🧹 Cleared all deffered tasks")
-    }
 }
 
-//extension LocalStorageService {
-//    
-//    func saveDeferredTasks(_ tasks: [TaskModel]) {
-//        // Очищаем текущие и сохраняем новые
-//        clearDeferredTasks()
-//        tasks.forEach { saveDeferredTask($0) }
-//    }
-//    
-//    func updateDeferedTask(_ task: TaskModel) {
-//        var deferredTasks = getDeferredTasks()
-//        
-//        // Удаляем старую версию задачи если есть
-//        deferredTasks.removeAll { $0.id == task.id }
-//        
-//        // Добавляем обновленную версию
-//        deferredTasks.append(task)
-//        
-//        // Сохраняем обратно
-//        saveDeferredTasks(deferredTasks)
-//    }
-//}
+// MARK: - Private methods
+
+private extension LocalStorageService {
+    
+    /// Дополнительный метод для проверки существования задачи
+    func taskExists(with id: String) -> Bool {
+        let fetchRequest: NSFetchRequest<TaskEntity> = TaskEntity.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "id == %@", id)
+        
+        do {
+            let count = try context.count(for: fetchRequest)
+            return count > 0
+        } catch {
+            print("▶️ Error checking task existence: \(error)")
+            return false
+        }
+    }
+    
+    /// Дополнительный метод для получения максимального значения `id` задачи
+    func maxId() -> Int {
+        let fetchRequest: NSFetchRequest<TaskEntity> = TaskEntity.fetchRequest()
+        
+        do {
+            let result = try context.fetch(fetchRequest)
+            if result.count > 0 {
+                let ids = result.compactMap { Int($0.id ?? "") }
+                return ids.max() ?? 0
+            } else {
+                return 0
+            }
+        } catch {
+            print("▶️ Error getting ids")
+            return 0
+        }
+    }
+}

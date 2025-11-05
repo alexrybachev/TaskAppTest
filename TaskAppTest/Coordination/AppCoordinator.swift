@@ -18,10 +18,10 @@ protocol AppCoordinatorProtocol: AnyObject {
 
 final class AppCoordinator: AppCoordinatorProtocol  {
     
-    var navigationController: UINavigationController
-    
     private let window: UIWindow?
     private let taskRepository: TaskRepositoryService
+    
+    var navigationController: UINavigationController
     
     init(
         window: UIWindow?,

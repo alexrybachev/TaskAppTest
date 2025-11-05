@@ -83,14 +83,10 @@ final class TaskDetailViewController: UIViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        print("TaskEditVC init")
         setupUI()
         setupBindings()
     }
-    
-    deinit {
-        print("TaskDetailVC deinit")
-    }
+
 }
 
 // MARK: - SetupUI
@@ -148,18 +144,6 @@ private extension TaskDetailViewController {
         ])
     }
     
-    func setupActions() {
-        addPhotoButton.addTarget(self, action: #selector(addPhotoTapped), for: .touchUpInside)
-        saveButton.addTarget(self, action: #selector(saveTapped), for: .touchUpInside)
-        completedSwitch.addTarget(self, action: #selector(changeSwitch), for: .valueChanged)
-        
-        nameTextField.delegate = self
-        nameTextField.addTarget(self, action: #selector(textFieldDidChange), for: .editingChanged)
-        
-        let cancelButton = UIBarButtonItem(barButtonSystemItem: .cancel, target: self, action: #selector(cancelTapped))
-        navigationItem.leftBarButtonItem = cancelButton
-    }
-    
     func createLabeledField(_ label: String, field: UIView) -> UIStackView {
         let labelView = UILabel()
         labelView.text = label
@@ -176,6 +160,18 @@ private extension TaskDetailViewController {
         stack.axis = .horizontal
         stack.distribution = .equalSpacing
         return stack
+    }
+    
+    func setupActions() {
+        addPhotoButton.addTarget(self, action: #selector(addPhotoTapped), for: .touchUpInside)
+        saveButton.addTarget(self, action: #selector(saveTapped), for: .touchUpInside)
+        completedSwitch.addTarget(self, action: #selector(changeSwitch), for: .valueChanged)
+        
+        nameTextField.delegate = self
+        nameTextField.addTarget(self, action: #selector(textFieldDidChange), for: .editingChanged)
+        
+        let cancelButton = UIBarButtonItem(barButtonSystemItem: .cancel, target: self, action: #selector(cancelTapped))
+        navigationItem.leftBarButtonItem = cancelButton
     }
 }
 

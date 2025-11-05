@@ -8,7 +8,7 @@
 import Foundation
 
 /// Модель для обновления задачи на сервере
-struct UpdateTaskRequest: Codable {
+struct UpdateTaskRequest: Encodable {
     let id: String
     let name: String
     let completed: Bool

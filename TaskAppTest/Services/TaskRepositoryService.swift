@@ -24,8 +24,6 @@ final class TaskRepositoryService {
     private let monitor: NetworkMonitor
     private var cancellables = Set<AnyCancellable>()
     
-    private let syncQueue = DispatchQueue(label: "SyncQueue", qos: .utility)
-    
     let tasks = CurrentValueSubject<[TaskModel], Never>([])
     let isOnline = CurrentValueSubject<Bool, Never>(false)
     let isLoading = CurrentValueSubject<Bool, Never>(false)
@@ -40,32 +38,29 @@ final class TaskRepositoryService {
         self.localStorage = localStorage
         self.monitor = monitor
         setupNetworkMonitoring()
-        loadInitialData()
         startSyncTimer()
     }
-    
-    deinit {
-        print("TaskRepositoryService deinit")
-    }
-    
 }
 
 // MARK: - Public methods
 extension TaskRepositoryService {
     
     func fetchTasks() {
+        isLoading.send(true)
         if isOnline.value {
             fetchTasksFromServer()
         } else {
-            mergeLocalAndDeferredTasks()
+            updateTasksInfo()
+            isLoading.send(false)
         }
     }
     
     func addTask(_ task: TaskModel) {
         if isOnline.value {
-            addTaskToServer(task)
+            saveTaskToServer(task)
         } else {
-            saveTaskLocally(task, deferredOperation: .add)
+            localStorage.saveNewTaskToCoreData(task, with: .new)
+            updateTasksInfo()
         }
     }
     
@@ -73,18 +68,48 @@ extension TaskRepositoryService {
         if isOnline.value {
             updateTaskOnServer(task)
         } else {
-            saveTaskLocally(task, deferredOperation: .update)
+            localStorage.updateTaskToCoreData(task, with: .update)
+            updateTasksInfo()
         }
     }
     
-    func syncPendingOperations() {
+    /// Метод для синхронизации задач между сервером и  CoreData
+    func syncTasks() {
         guard isOnline.value else { return }
-        
-        let deferredTasks = localStorage.getDeferredTasks()
-        guard !deferredTasks.isEmpty else { return }
-        
         syncStatus.send(.syncing)
-        syncDeferredTasks(deferredTasks)
+        
+        let updatedTasks = localStorage.getTasksFromCoreData(with: .update)
+        let updatePublisher = updateTasksFromCoreData(for: updatedTasks)
+        
+        let newTasks = localStorage.getTasksFromCoreData(with: .new)
+        let newTasksPubishers = addNewTaskToServer(for: newTasks)
+        
+        return Publishers.Merge(updatePublisher, newTasksPubishers)
+            .last()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] completion in
+                switch completion {
+                case .finished:
+                    self?.localStorage.updateTasksOnCoreData(with: .update)
+                    self?.localStorage.updateTasksOnCoreData(with: .new)
+                    self?.fetchTasksFromServer()
+                    self?.syncStatus.send(.idle)
+                    print("♻️ Finished syncing tasks")
+                case .failure(let error):
+                    print("❌ Failure sync tasks: \(error), \(error.localizedDescription)")
+                    self?.syncStatus.send(.error("Error fetching tasks from server"))
+                }
+            } receiveValue: { [weak self] result in
+                self?.tasks.send(result)
+                self?.syncStatus.send(.success)
+            }
+            .store(in: &cancellables)
+    }
+    
+    /// Метод для обновления задач
+    func updateTasksInfo() {
+        let savedTasks = localStorage.getTasksFromCoreData(with: nil)
+        tasks.send(savedTasks)
     }
     
 }
@@ -96,10 +121,9 @@ private extension TaskRepositoryService {
         monitor.$isConnected
             .sink { [weak self] isOnline in
                 self?.isOnline.send(isOnline)
-                print("isOnline = \(self!.isOnline.value)")
                 if isOnline {
                     print("📱 Network connected - starting sync")
-                    self?.syncPendingOperations()
+                    self?.syncTasks()
                 } else {
                     print("📱 Network disconnected - working offline")
                 }
@@ -112,8 +136,72 @@ private extension TaskRepositoryService {
         Timer.publish(every: 30, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
-                if self?.isOnline.value == true {
-                    self?.syncPendingOperations()
+                print("isOnline = \(self!.isOnline.value)")
+            }
+            .store(in: &cancellables)
+    }
+}
+
+// MARK: - Network Management
+private extension TaskRepositoryService {
+    
+    func fetchTasksFromServer() {
+        networkService.getTasks()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] completion in
+                switch completion {
+                case .finished:
+                    self?.isOnline.send(true)
+                    self?.isLoading.send(false)
+                case .failure(let error):
+                    print("❌ Error fetching tasks from server: \(error)")
+                    self?.isLoading.send(false)
+                    self?.updateTasksInfo()
+                }
+            } receiveValue: { [weak self] serverTasks in
+                self?.tasks.send(serverTasks)
+                self?.localStorage.loadTaskFromServerToCoreData(for: serverTasks)
+            }
+            .store(in: &cancellables)
+    }
+    
+    func saveTaskToServer(_ task: TaskModel) {
+        networkService.addTask(task)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] completion in
+                switch completion {
+                case .finished:
+                    self?.isOnline.send(true)
+                case .failure(let error):
+                    print("❌ Failed to add task to server: \(error)")
+                    self?.localStorage.saveNewTaskToCoreData(task, with: .new)
+                    self?.updateTasksInfo()
+                }
+            } receiveValue: { [weak self] savedTasks in
+                self?.tasks.send(savedTasks)
+                if let newTask = savedTasks.first(where: { $0.date == task.date }) {
+                    self?.localStorage.saveNewTaskToCoreData(newTask, with: .server)
+                }
+            }
+            .store(in: &cancellables)
+    }
+    
+    func updateTaskOnServer(_ task: TaskModel) {
+        networkService.updateTask(task)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] completion in
+                switch completion {
+                case .finished:
+                    self?.isOnline.send(true)
+                case .failure(let error):
+                    print("❌ Failed to update task on server: \(error)")
+                    self?.localStorage.updateTaskToCoreData(task, with: .update)
+                    self?.updateTasksInfo()
+                }
+            } receiveValue: { [weak self] updatedTasks in
+                self?.tasks.send(updatedTasks)
+                if let updatedTask = updatedTasks.first(where: { $0.id == task.id }) {
+                    self?.localStorage.updateTaskToCoreData(updatedTask, with: .server)
                 }
             }
             .store(in: &cancellables)
@@ -123,161 +211,29 @@ private extension TaskRepositoryService {
 // MARK: - Server Synchronization
 private extension TaskRepositoryService {
     
-    func fetchTasksFromServer() {
-        syncStatus.send(.syncing)
-        
-        networkService.getTasks()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] completion in
-                if case .failure(let error) = completion {
-                    print("❌ Error fetching tasks from server: \(error)")
-                    self?.syncStatus.send(.error("Error fetching tasks from server"))
+    func addNewTaskToServer(for tasks: [TaskModel]) -> AnyPublisher<[TaskModel], NetworkError> {
+        return Publishers.Sequence(sequence: tasks)
+            .flatMap { [weak self] task -> AnyPublisher<[TaskModel], NetworkError> in
+                guard let self = self else {
+                    return Fail<[TaskModel], NetworkError>(error: NetworkError.serverError("Error addNewTaskToServer"))
+                        .eraseToAnyPublisher()
                 }
-            } receiveValue: { [weak self] serverTasks in
-                guard let self = self else { return }
-                self.localStorage.saveTasks(serverTasks)
-                self.tasks.send(serverTasks)
-                self.syncStatus.send(.success)
-                self.syncPendingOperations()
+                return self.networkService.addTask(task)
             }
-            .store(in: &cancellables)
+            .last()
+            .eraseToAnyPublisher()
     }
     
-    func addTaskToServer(_ task: TaskModel) {
-        networkService.addTask(task)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] completion in
-                if case .failure(let error) = completion {
-                    print("❌ Failed to add task to server: \(error)")
-                    self?.saveTaskLocally(task, deferredOperation: .add)
-                    self?.syncStatus.send(.error("Failed to add task"))
+    func updateTasksFromCoreData(for tasks: [TaskModel]) -> AnyPublisher<[TaskModel], NetworkError> {
+        return Publishers.Sequence(sequence: tasks)
+            .flatMap { [weak self] task -> AnyPublisher<[TaskModel], NetworkError> in
+                guard let self = self else {
+                    return Fail<[TaskModel], NetworkError>(error: NetworkError.serverError("Error updateTasksFromCoreData"))
+                        .eraseToAnyPublisher()
                 }
-            } receiveValue: { [weak self] updatedTasks in
-                guard let self = self else { return }
-                self.localStorage.saveTasks(updatedTasks)
-                self.tasks.send(updatedTasks)
+                return self.networkService.updateTask(task)
             }
-            .store(in: &cancellables)
+            .last()
+            .eraseToAnyPublisher()
     }
-    
-    func updateTaskOnServer(_ task: TaskModel) {
-        networkService.updateTask(task)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] completion in
-                if case .failure(let error) = completion {
-                    print("❌ Failed to update task on server: \(error)")
-                    self?.saveTaskLocally(task, deferredOperation: .update)
-                    self?.syncStatus.send(.error("Failed to update task"))
-                }
-            } receiveValue: { [weak self] updatedTasks in
-                guard let self = self else { return }
-                self.localStorage.saveTasks(updatedTasks)
-                self.tasks.send(updatedTasks)
-            }
-            .store(in: &cancellables)
-    }
-    
-    func syncDeferredTasks(_ deferredTasks: [TaskModel]) {
-        guard !deferredTasks.isEmpty else {
-            syncStatus.send(.success)
-            return
-        }
-        
-        let group = DispatchGroup()
-        var successfulTasks: [TaskModel] = []
-        var failedTasks: [TaskModel] = []
-        
-        for task in deferredTasks {
-            group.enter()
-        
-            let localTasks = localStorage.loadTasks()
-            let isUpdate = localTasks.contains(where: { $0.id == task.id })
-            
-            let publisher = isUpdate ?
-            networkService.updateTask(task) :
-            networkService.addTask(task)
-            
-            publisher
-                .receive(on: DispatchQueue.main)
-                .sink { completion in
-                    if case .failure(let error) = completion {
-                        print("❌ Failed to sync task \(task.id): \(error)")
-                        failedTasks.append(task)
-                    } else {
-                        successfulTasks.append(task)
-                    }
-                    group.leave()
-                } receiveValue: { _ in }
-                .store(in: &cancellables)
-        }
-        
-        group.notify(queue: .main) { [weak self] in
-            self?.handleSyncCompletion(successfulTasks: successfulTasks, failedTasks: failedTasks)
-        }
-    }
-    
-    func handleSyncCompletion(successfulTasks: [TaskModel], failedTasks: [TaskModel]) {
-        if failedTasks.isEmpty {
-            localStorage.clearDeferredTasks()
-            syncStatus.send(.success)
-            fetchTasksFromServer()
-        } else {
-            localStorage.saveDeferredTasks(failedTasks)
-            syncStatus.send(.error("Failed to sync \(failedTasks.count) tasks"))
-        }
-    }
-}
-
-// MARK: - Data Management
-private extension TaskRepositoryService {
-    
-    func loadInitialData() {
-        let localTasks = localStorage.loadInitialData()
-        tasks.send(localTasks)
-        
-        if isOnline.value {
-            fetchTasksFromServer()
-        } else {
-            mergeLocalAndDeferredTasks()
-        }
-    }
-    
-    func mergeLocalAndDeferredTasks() {
-        let localTasks = localStorage.loadTasks()
-        let deferredTasks = localStorage.getDeferredTasks()
-        
-        var mergedTasks = localTasks
-        
-        for deferredTask in deferredTasks {
-            if let index = mergedTasks.firstIndex(where: { $0.id == deferredTask.id }) {
-                mergedTasks[index] = deferredTask
-            } else {
-                mergedTasks.append(deferredTask)
-            }
-        }
-        
-        tasks.send(mergedTasks)
-    }
-    
-    func saveTaskLocally(_ task: TaskModel, deferredOperation: DeferredOperationType) {
-        var currentTasks = tasks.value
-        
-        if let index = currentTasks.firstIndex(where: { $0.id == task.id }) {
-            currentTasks[index] = task
-            localStorage.updateTask(task)
-        } else {
-            currentTasks.append(task)
-            localStorage.saveTasks(currentTasks)
-        }
-        
-        tasks.send(currentTasks)
-        
-        switch deferredOperation {
-        case .add:
-            localStorage.saveDeferredTask(task)
-        case .update:
-            localStorage.updateDeferedTask(task)
-        }
-    }
-
 }

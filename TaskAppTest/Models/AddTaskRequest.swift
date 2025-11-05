@@ -5,8 +5,8 @@
 //  Created by Aleksandr Rybachev on 13.10.2025.
 //
 
-/// Модель для lдобавления задачи на сервере
-struct AddTaskRequest: Codable {
+/// Модель для добавления задачи на сервере
+struct AddTaskRequest: Encodable {
     let name: String
     let completed: Bool
     let photoBase64: String?
