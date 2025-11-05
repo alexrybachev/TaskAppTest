@@ -71,9 +71,7 @@ final class TaskAddViewController: UIViewController {
     }()
     
     // MARK: - Initial
-    init(
-        viewModel: TaskAddViewModel
-    ) {
+    init(viewModel: TaskAddViewModel) {
         self.viewModel = viewModel
         super.init(nibName: nil, bundle: nil)
     }
@@ -87,10 +85,6 @@ final class TaskAddViewController: UIViewController {
         setupUI()
         setupBindings()
         setupActions()
-    }
-    
-    deinit {
-        print("TaskEditVC deinit")
     }
 }
 
@@ -156,34 +150,6 @@ private extension TaskAddViewController {
         
         let cancelButton = UIBarButtonItem(barButtonSystemItem: .cancel, target: self, action: #selector(cancelTapped))
         navigationItem.leftBarButtonItem = cancelButton
-    }
-    
-    func updateUI() {
-        print("TaskEditVC updateUI")
-        // Update image
-//        if let image = viewModel.selectedImage {
-//            photoImageView.image = image
-//            photoImageView.isHidden = false
-//        }
-        
-        // Update saving state
-        if viewModel.isSaving {
-            print("Сохраняем задачу...")
-//            showLoadingIndicator(message: "Сохраняем задачу...")
-        } else {
-            print("Должны скрыть индикатор...")
-//            hideLoadingIndicator()
-            
-            // Handle success
-//            if viewModel.errorMessage == nil {
-//                coordinatorDelegate?.didFinishEditing()
-//            }
-        }
-        
-        // Show errors
-//        if let errorMessage = viewModel.errorMessage {
-//            showErrorAlert(message: errorMessage)
-//        }
     }
     
     func createLabeledField(_ label: String, field: UIView) -> UIStackView {

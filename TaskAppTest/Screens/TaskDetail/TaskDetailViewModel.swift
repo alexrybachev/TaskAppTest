@@ -38,11 +38,12 @@ final class TaskDetailViewModel: ObservableObject {
     
     func saveChanges() {
         if !name.isEmpty {
+            let imageString = selectedImage?.toBase64String()
             let updateTask = TaskModel(
                 id: task.id,
                 name: name,
                 completed: completed,
-                photoBase64: selectedImage?.toBase64String(),
+                photoBase64: imageString,
                 date: task.date
             )
             taskRepository.updateTask(updateTask)
