@@ -136,7 +136,7 @@ private extension TaskRepositoryService {
         Timer.publish(every: 30, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
-                print("isOnline = \(self!.isOnline.value)")
+                print("isOnline = \(self?.isOnline.value ?? false)")
             }
             .store(in: &cancellables)
     }
