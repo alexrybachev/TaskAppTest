@@ -15,26 +15,15 @@ final class TaskListViewController: UIViewController {
 
     // MARK: - UI Elements
     
-    private let tableView: UITableView = {
+    private lazy var tableView: UITableView = {
         let table = UITableView()
-        table.register(TaskCell.self, forCellReuseIdentifier: TaskCell.reuseIdentifier)
+        table.register(TaskCell.self)
         return table
     }()
     
-    private let addButton: UIButton = {
-        let button = UIButton(type: .system)
-        button.backgroundColor = .systemBlue
-        button.tintColor = .white
-        button.setImage(UIImage(systemName: "plus"), for: .normal)
-        button.layer.cornerRadius = 28
-        button.layer.shadowColor = UIColor.black.cgColor
-        button.layer.shadowOffset = CGSize(width: 0, height: 2)
-        button.layer.shadowRadius = 4
-        button.layer.shadowOpacity = 0.3
-        return button
-    }()
+    private lazy var addButton = UIButton.makeAddbutton()
     
-    private let activityIndicator: UIActivityIndicatorView = {
+    private lazy var activityIndicator: UIActivityIndicatorView = {
         let indicator = UIActivityIndicatorView(style: .medium)
         indicator.hidesWhenStopped = true
         return indicator
@@ -65,12 +54,10 @@ final class TaskListViewController: UIViewController {
 private extension TaskListViewController {
     
     func setupUI() {
-        title = "Мои задачи"
+        title = viewModel.title
         view.backgroundColor = .systemBackground
         
-        view.addSubview(tableView)
-        view.addSubview(addButton)
-        view.addSubview(activityIndicator)
+        view.addSubviews(tableView, addButton, activityIndicator)
         
         tableView.translatesAutoresizingMaskIntoConstraints = false
         addButton.translatesAutoresizingMaskIntoConstraints = false
@@ -122,7 +109,7 @@ private extension TaskListViewController {
 private extension TaskListViewController {
     
     @objc func addButtonTapped() {
-        viewModel.showAddTask(from: self)
+        viewModel.onAddButtonTapped?()
     }
 }
 
@@ -147,6 +134,6 @@ extension TaskListViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         let task = viewModel.tasks[indexPath.row]
-        viewModel.showTaskDetail(task, from: self)
+        viewModel.onCellTapped?(task)
     }
 }

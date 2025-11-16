@@ -9,31 +9,30 @@ import Foundation
 import Combine
 import UIKit
 
-final class TaskDetailViewModel: ObservableObject {
+final class TaskDetailViewModel {
     
     @Published var task: TaskModel
     @Published var name: String
     @Published var completed: Bool
     @Published var selectedImage: UIImage?
-    @Published var isSaving = false
     
     let navigationTitle = "Информация о задаче"
     
-    private let coordinator: AppCoordinator
     private let taskRepository: TaskRepositoryService
-    private var cancellables = Set<AnyCancellable>()
+    
+    var onCancelButtonTapped: ((UIViewController) -> Void)?
     
     init(
         task: TaskModel,
         taskRepository: TaskRepositoryService,
-        coordinator: AppCoordinator
+        onCancelButtonTapped: ((UIViewController) -> Void)? = nil
     ) {
         self.taskRepository = taskRepository
         self.task = task
         self.name = task.name
         self.completed = task.completed
-        self.coordinator = coordinator
         self.selectedImage = task.image
+        self.onCancelButtonTapped = onCancelButtonTapped
     }
     
     func saveChanges() {
@@ -51,6 +50,6 @@ final class TaskDetailViewModel: ObservableObject {
     }
      
     func cancelButtonTapped(for viewController: UIViewController) {
-        coordinator.dismiss(for: viewController)
+        onCancelButtonTapped?(viewController)
     }
 }

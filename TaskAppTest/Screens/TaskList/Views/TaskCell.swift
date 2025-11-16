@@ -9,35 +9,10 @@ import UIKit
 
 final class TaskCell: UITableViewCell {
     
-    static let reuseIdentifier = "TaskCell"
-    
-    private let nameLabel: UILabel = {
-        let label = UILabel()
-        label.font = UIFont.systemFont(ofSize: 16, weight: .medium)
-        label.numberOfLines = 2
-        return label
-    }()
-    
-    private let statusLabel: UILabel = {
-        let label = UILabel()
-        label.font = UIFont.systemFont(ofSize: 14, weight: .regular)
-        label.textColor = .systemGray
-        return label
-    }()
-    
-    private let dateLabel: UILabel = {
-        let label = UILabel()
-        label.font = UIFont.systemFont(ofSize: 12, weight: .light)
-        label.textColor = .systemGray2
-        return label
-    }()
-    
-    private let stackView: UIStackView = {
-        let stack = UIStackView()
-        stack.axis = .vertical
-        stack.spacing = 4
-        return stack
-    }()
+    private lazy var nameLabel = UILabel.makeUILabel(with: 16, .medium, nil, numberOfLines: 2)
+    private lazy var statusLabel = UILabel.makeUILabel(with: 14, .regular, .systemGray)
+    private lazy var dateLabel = UILabel.makeUILabel(with: 12, .light, .systemGray2)
+    private lazy var stackView = UIStackView.makeUIStackView([nameLabel, statusLabel, dateLabel], with: .vertical, and: 4)
     
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -62,11 +37,8 @@ private extension TaskCell {
     
     func setupUI() {
         contentView.addSubview(stackView)
-        stackView.addArrangedSubview(nameLabel)
-        stackView.addArrangedSubview(statusLabel)
-        stackView.addArrangedSubview(dateLabel)
-        
         stackView.translatesAutoresizingMaskIntoConstraints = false
+        
         NSLayoutConstraint.activate([
             stackView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
             stackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),

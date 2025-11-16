@@ -12,7 +12,7 @@ protocol AppCoordinatorProtocol: AnyObject {
     
     func start()
     func showAddNewTask(from viewController: UIViewController)
-    func showDetailTask(_ task: TaskModel, from viewController: UIViewController)
+    func showDetailTask(_ task: TaskModel)
     func dismiss(for viewController: UIViewController)
 }
 
@@ -39,22 +39,38 @@ final class AppCoordinator: AppCoordinatorProtocol  {
     }
     
     private func showTaskList() {
-        let taskListViewModel = TaskListViewModel(coordinator: self, taskRepository: taskRepository)
+        let taskListViewModel = TaskListViewModel(
+            taskRepository: taskRepository,
+            onCellTapped: { [weak self] task in
+                self?.showDetailTask(task)
+            },
+            onAddButtonTapped: { [weak self] in
+                self?.showAddNewTask(from: UIViewController())
+            })
         let taskListViewController = TaskListViewController(viewModel: taskListViewModel)
         navigationController = UINavigationController(rootViewController: taskListViewController)
         window?.rootViewController = navigationController
     }
     
     func showAddNewTask(from viewController: UIViewController) {
-        let taskAddViewModel = TaskAddViewModel(coordinator: self, taskRepository: taskRepository)
-        let taskAddViewController = TaskAddViewController(viewModel: taskAddViewModel)
-        viewController.navigationController?.pushViewController(taskAddViewController, animated: true)
+        let taskAddViewModel = TaskAddViewModel(taskRepository: taskRepository, onCancelButtonTapped: { [weak self] viewController in
+            self?.dismiss(for: viewController)
+        })
+        let taskView = TaskView()
+        let taskAddViewController = TaskAddViewController(taskView: taskView, viewModel: taskAddViewModel)
+        navigationController.pushViewController(taskAddViewController, animated: true)
     }
     
-    func showDetailTask(_ task: TaskModel, from viewController: UIViewController) {
-        let taskDetailViewModel = TaskDetailViewModel(task: task, taskRepository: taskRepository, coordinator: self)
-        let taskDetailViewController = TaskDetailViewController(viewModel: taskDetailViewModel)
-        viewController.navigationController?.pushViewController(taskDetailViewController, animated: true)
+    func showDetailTask(_ task: TaskModel) {
+        let taskDetailViewModel = TaskDetailViewModel(
+            task: task,
+            taskRepository: taskRepository,
+            onCancelButtonTapped: { [weak self] viewController in
+                self?.dismiss(for: viewController)
+            })
+        let taskView = TaskView()
+        let taskDetailViewController = TaskDetailViewController(taskView: taskView, viewModel: taskDetailViewModel)
+        navigationController.pushViewController(taskDetailViewController, animated: true)
     }
     
     func dismiss(for viewController: UIViewController) {

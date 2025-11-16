@@ -9,22 +9,26 @@ import Foundation
 import Combine
 import UIKit
 
-final class TaskListViewModel: ObservableObject {
+final class TaskListViewModel {
     
     @Published var tasks: [TaskModel] = []
     @Published var isLoading = false
-    @Published var errorMessage: String?
     
     private let taskRepository: TaskRepositoryService
-    private let coordinator: AppCoordinator
-    private var cancellables = Set<AnyCancellable>()
+    
+    let title = "Мои задачи"
+    
+    var onCellTapped: ((TaskModel) -> Void)?
+    var onAddButtonTapped: (() -> Void)?
     
     init(
-        coordinator: AppCoordinator,
-        taskRepository: TaskRepositoryService
+        taskRepository: TaskRepositoryService,
+        onCellTapped: ((TaskModel) -> Void)? = nil,
+        onAddButtonTapped: (() -> Void)? = nil
     ) {
-        self.coordinator = coordinator
         self.taskRepository = taskRepository
+        self.onCellTapped = onCellTapped
+        self.onAddButtonTapped = onAddButtonTapped
         setupBindings()
     }
     
@@ -38,13 +42,5 @@ final class TaskListViewModel: ObservableObject {
     
     func fetchTasks() {
         taskRepository.fetchTasks()
-    }
-    
-    func showAddTask(from viewController: UIViewController) {
-        coordinator.showAddNewTask(from: viewController)
-    }
-    
-    func showTaskDetail(_ task: TaskModel, from viewController: UIViewController) {
-        coordinator.showDetailTask(task, from: viewController)
     }
 }

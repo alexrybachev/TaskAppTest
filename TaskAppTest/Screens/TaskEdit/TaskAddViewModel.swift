@@ -10,51 +10,43 @@ import Combine
 import UIKit
 
 
-final class TaskAddViewModel: ObservableObject {
+final class TaskAddViewModel {
     
     @Published var name: String = ""
     @Published var completed: Bool = false
     @Published var selectedImage: UIImage?
     
-    @Published var isSaving: Bool = false
-    @Published var errorMessage: String?
-    
-    private let coordinator: AppCoordinator
     private let taskRepository: TaskRepositoryService
-    private var editingTask: TaskModel?
-    private var cancellables = Set<AnyCancellable>()
     
     let navigationTitle = "Новая задача"
     
-    var isEditing: Bool {
-        editingTask != nil
-    }
+    var onCancelButtonTapped: ((UIViewController) -> Void)?
     
     // MARK: - Initial
     init(
-        coordinator: AppCoordinator,
         taskRepository: TaskRepositoryService,
-        editingTask: TaskModel? = nil
+        onCancelButtonTapped: ((UIViewController) -> Void)? = nil
     ) {
-        self.coordinator = coordinator
         self.taskRepository = taskRepository
-        self.editingTask = editingTask
+        self.onCancelButtonTapped = onCancelButtonTapped
     }
     
     func saveTask() {
         if !name.isEmpty {
+            let imageString = selectedImage?.toBase64String()
+            let dateNow = Date.currentDateString
             let addTask = TaskModel(
                 id: UUID().uuidString,
                 name: name,
                 completed: completed,
-                photoBase64: selectedImage?.toBase64String(),
-                date: Date.currentDateString
+                photoBase64: imageString,
+                date: dateNow
             )
             taskRepository.addTask(addTask)
         }
     }
     
     func cancelButtonTapped(for viewController: UIViewController) {
-        coordinator.dismiss(for: viewController)
+        onCancelButtonTapped?(viewController)
     }
 }

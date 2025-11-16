@@ -12,13 +12,27 @@ struct TasksResponse: Decodable {
     let values: [TaskModel]
 }
 
-struct TaskModel: Decodable, Identifiable, Hashable {
+
+struct TaskModel: Decodable, Identifiable {
     let id: String
-    var name: String
-    var completed: Bool
-    var photoBase64: String?
-    var date: String
+    let name: String
+    let completed: Bool
+    let photoBase64: String?
+    let date: String
 }
+
+extension TaskModel: Hashable {
+    
+    static func == (lhs: TaskModel, rhs: TaskModel) -> Bool {
+        return lhs.id == rhs.id && lhs.date == rhs.date
+    }
+    
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(date)
+    }
+}
+
 
 // MARK: - Extensions
 

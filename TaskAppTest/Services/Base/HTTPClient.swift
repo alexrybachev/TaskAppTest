@@ -18,37 +18,20 @@ final class HTTPClient {
     }
     
     func request<T: Decodable>(endpoint: APIEndpoint) -> AnyPublisher<T, NetworkError> {
-        guard let request = buildURLRequest(endpoint: endpoint) else {
+        guard let request = endpoint.request else {
             return Fail(error: NetworkError.buildRequestError)
                 .eraseToAnyPublisher()
         }
         
         return session.dataTaskPublisher(for: request)
-            .tryMap { data, response in
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    throw NetworkError.invalidResponse
-                }
-                
-                switch httpResponse.statusCode {
-                case 200..<300:
-                    return data
-                default:
-                    throw NetworkError.serverError(httpResponse.statusCode.description)
-                }
-            }
+            .tryMap(parceResponse)
             .decode(type: T.self, decoder: JSONDecoder())
-            .mapError { error in
-                if let apiError = error as? NetworkError {
-                    return apiError
-                } else {
-                    return NetworkError.serverError(error.localizedDescription)
-                }
-            }
+            .mapError { NetworkError.serverError($0.localizedDescription) }
             .eraseToAnyPublisher()
     }
     
     func post<T: Encodable, U: Decodable>(endpoint: APIEndpoint, body: T) -> AnyPublisher<U, NetworkError> {
-        guard var request = buildURLRequest(endpoint: endpoint) else {
+        guard var request = endpoint.request else {
             return Fail(error: NetworkError.buildRequestError)
                 .eraseToAnyPublisher()
         }
@@ -60,24 +43,9 @@ final class HTTPClient {
         request.httpBody = jsonData
         
         return session.dataTaskPublisher(for: request)
-            .tryMap { data, response in
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    throw NetworkError.invalidResponse
-                }
-                
-                switch httpResponse.statusCode {
-                case 200..<300: return data
-                default: throw NetworkError.serverError(httpResponse.statusCode.description)
-                }
-            }
+            .tryMap(parceResponse)
             .decode(type: U.self, decoder: JSONDecoder())
-            .mapError { error in
-                if let apiError = error as? NetworkError {
-                    return apiError
-                } else {
-                    return NetworkError.serverError(error.localizedDescription)
-                }
-            }
+            .mapError { NetworkError.serverError($0.localizedDescription) }
             .catch { error -> AnyPublisher<U, NetworkError> in
                 return Fail(error: error).eraseToAnyPublisher()
             }
@@ -85,24 +53,14 @@ final class HTTPClient {
     }
 }
 
-// MARK: - URLRequest
+// MARK: - Extensions
 
 private extension HTTPClient {
     
-    func buildURLRequest(endpoint: APIEndpoint) -> URLRequest? {
-        var components = URLComponents()
-        components.scheme = endpoint.scheme
-        components.host = endpoint.host
-        components.port = endpoint.port
-        components.path = endpoint.path
-        guard let url = components.url else {
-            print("❌ HTTPClient -> Error build url")
-            return nil
-        }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = endpoint.method.rawValue
-        request.addValue(endpoint.contentType.headerValue, forHTTPHeaderField: "Content-Type")
-        return request
+    func parceResponse(_ data: Data, response: URLResponse) throws -> Data {
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200..<300).contains(httpResponse.statusCode)
+        else { throw NetworkError.invalidResponse }
+        return data
     }
 }
